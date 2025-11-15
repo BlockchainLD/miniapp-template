@@ -4,45 +4,30 @@ import { useAccount, useDisconnect } from "wagmi";
 export const useLoggedIn = () => {
   const { address } = useAccount();
   const { disconnect } = useDisconnect();
-  const [copied, setCopied] = useState<boolean>(false);
-  const [copiedUserId, setCopiedUserId] = useState<boolean>(false);
+  const [copied, setCopied] = useState(false);
+  const [copiedUserId, setCopiedUserId] = useState(false);
   const [activeTab, setActiveTab] = useState("home");
 
-  const handleSignOut = async () => {
-    try {
-      disconnect();
-    } catch (error) {
-      console.error("Sign-out error:", error);
-    }
-  };
-
   const walletAddress = address || '';
-
-  const handleCopyAddress = async () => {
-    if (walletAddress) {
-      await navigator.clipboard.writeText(walletAddress);
+  const createCopyHandler = (text: string, setCopied: (v: boolean) => void) => async () => {
+    if (text) {
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
   };
-
-  const handleCopyUserId = async () => {
-    if (walletAddress) {
-      await navigator.clipboard.writeText(walletAddress);
-      setCopiedUserId(true);
-      setTimeout(() => setCopiedUserId(false), 2000);
-    }
-  };
+  const handleCopyAddress = createCopyHandler(walletAddress, setCopied);
+  const handleCopyUserId = createCopyHandler(walletAddress, setCopiedUserId);
 
   return {
     copied,
     copiedUserId,
     activeTab,
     setActiveTab,
-    handleSignOut,
+    handleSignOut: disconnect,
     walletAddress,
     handleCopyAddress,
     handleCopyUserId,
-    userId: walletAddress, // Use wallet address as user ID for now
+    userId: walletAddress,
   };
 };

@@ -36,7 +36,6 @@ export const createAuth = (
     baseURL: siteUrl,
     trustedOrigins: [
       "http://localhost:3000",
-      "https://base-mini-app-template.vercel.app",
       ...(process.env.SITE_URL ? [process.env.SITE_URL] : [])
     ],
     database: authComponent.adapter(ctx),

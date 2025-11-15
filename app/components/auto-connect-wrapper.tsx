@@ -1,8 +1,9 @@
 "use client";
 
-import { ReactNode, useEffect, useState, createContext, useContext } from "react";
+import { ReactNode, useEffect, useState, createContext, useContext, useRef } from "react";
 import { useAccount, useConnect } from "wagmi";
 import { sdk } from '@farcaster/miniapp-sdk';
+import { Loading } from "./loading";
 
 interface FarcasterContextType {
   fid: number | null;
@@ -24,75 +25,95 @@ export function AutoConnectWrapper({ children }: AutoConnectWrapperProps) {
   const { isConnected, isConnecting } = useAccount();
   const { connectAsync, connectors } = useConnect();
   const [isInMiniApp, setIsInMiniApp] = useState(false);
-  const [autoConnectAttempted, setAutoConnectAttempted] = useState(false);
   const [fid, setFid] = useState<number | null>(null);
+  const autoConnectAttempted = useRef(false);
 
   useEffect(() => {
-    const checkMiniApp = async () => {
+    let mounted = true;
+
+    const attemptAutoConnect = async () => {
+      // Prevent multiple attempts
+      if (autoConnectAttempted.current || isConnected) {
+        return;
+      }
+
       try {
-        const inMiniApp = await sdk.isInMiniApp();
-        setIsInMiniApp(inMiniApp);
+        // Check if we're in a Farcaster mini app
+        const inFarcasterMiniApp = await sdk.isInMiniApp();
         
-        // Get FID from Farcaster context if available
-        if (inMiniApp) {
+        if (inFarcasterMiniApp && mounted) {
+          setIsInMiniApp(true);
+          
+          // Get Farcaster context and FID
           try {
             const context = await sdk.context;
-            if (context?.user?.fid) {
+            if (context?.user?.fid && mounted) {
               setFid(context.user.fid);
             }
           } catch (error) {
-            console.log('Error getting Farcaster context:', error);
+            console.warn('Failed to get Farcaster context:', error);
           }
-        }
-        
-        // If we're in a mini app and not connected, try to auto-connect
-        if (inMiniApp && !isConnected && !autoConnectAttempted) {
-          setAutoConnectAttempted(true);
-          const farcasterConnector = connectors.find(connector => 
-            connector.type === 'farcasterMiniApp' || 
-            connector.name.toLowerCase().includes('farcaster')
-          );
-          
-          if (farcasterConnector) {
-            try {
-              await connectAsync({ connector: farcasterConnector });
-            } catch (error) {
-              console.log('Auto-connect failed:', error);
+
+          // Attempt to connect with Farcaster connector
+          // Note: baseAccount connector auto-connects automatically in Base App,
+          // so we only need to handle Farcaster mini app here
+          if (!isConnected && !autoConnectAttempted.current && mounted) {
+            autoConnectAttempted.current = true;
+            const farcasterConnector = connectors.find(
+              c => c.type === 'farcasterMiniApp' || c.id === 'farcasterMiniApp'
+            );
+            
+            if (farcasterConnector) {
+              try {
+                await connectAsync({ connector: farcasterConnector });
+              } catch (error) {
+                console.error('Farcaster auto-connect failed:', error);
+                // Reset attempt flag on failure so user can manually retry
+                autoConnectAttempted.current = false;
+              }
             }
           }
+        } else if (mounted) {
+          setIsInMiniApp(false);
+          // baseAccount connector handles auto-connection automatically in Base App
+          // No manual intervention needed
         }
       } catch (error) {
-        console.log('Error checking mini app status:', error);
-        setIsInMiniApp(false);
+        console.warn('Auto-connect check failed:', error);
+        if (mounted) {
+          setIsInMiniApp(false);
+        }
       }
     };
 
-    checkMiniApp();
-  }, [isConnected, autoConnectAttempted, connectAsync, connectors]);
+    attemptAutoConnect();
 
-  // If we're in a mini app and connecting, show loading state
-  if (isInMiniApp && isConnecting) {
+    return () => {
+      mounted = false;
+    };
+  }, [isConnected, connectAsync, connectors]);
+
+  // Reset attempt flag when connection state changes
+  useEffect(() => {
+    if (isConnected) {
+      autoConnectAttempted.current = false;
+    }
+  }, [isConnected]);
+
+  if ((isInMiniApp || isConnecting) && isConnecting) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-3xl shadow-2xl p-7 space-y-7 text-center">
-          <div className="space-y-3">
-            <div className="animate-spin w-8 h-8 border-4 border-blue-500 rounded-full border-t-transparent mx-auto"></div>
-            <h2 className="font-sans antialiased font-semibold leading-narrow tracking-[-0.01em] text-2xl text-gray-900">
-              Connecting Wallet...
-            </h2>
-            <p className="font-sans antialiased font-normal leading-compact text-base text-gray-600">
-              Auto-connecting to your wallet in the Mini App
-            </p>
-          </div>
-        </div>
-      </div>
+      <Loading 
+        fullScreen 
+        title="Connecting Wallet..." 
+        message="Auto-connecting to your wallet in the Mini App" 
+      />
     );
   }
 
-  // Show the main app content
   return (
     <FarcasterContext.Provider value={{ fid, isInMiniApp }}>
-      <div>{children}</div>
+      {children}
     </FarcasterContext.Provider>
   );
 }
+
